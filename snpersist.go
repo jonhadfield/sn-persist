@@ -56,12 +56,14 @@ type SyncToken struct {
 
 type SyncInput struct {
 	Session gosn.Session
-	DB      *storm.DB
+	DB      *storm.DB // pointer to an existing DB
+	DBPath  string    // path to create new DB
 }
 
 type SyncOutput struct {
 	Items, SavedItems, Unsaved gosn.EncryptedItems // only used for testing purposes!?
 	syncToken, cursorToken     string              // only used for testing purposes!?
+	DB                         *storm.DB           // pointer to DB (same if passed in SyncInput, new if called without existing)
 }
 
 func convertItemsToPersistItems(in gosn.EncryptedItems) (out []Item) {
@@ -81,18 +83,74 @@ func convertItemsToPersistItems(in gosn.EncryptedItems) (out []Item) {
 	return
 }
 
-//func firstSync(session gosn.Session)
-
-func Sync(si SyncInput) (so SyncOutput, err error) {
-	if si.DB == nil {
-		// first sync
-		err = fmt.Errorf("database not provided")
+func firstSync(si SyncInput) (db *storm.DB, err error) {
+	// create new DB in provided path
+	db, err = storm.Open(si.DBPath)
+	if err != nil {
 		return
 	}
 
+	// call gosn sync to get existing items
+	gSI := gosn.SyncInput{
+		Session: si.Session,
+	}
+
+	var gSO gosn.SyncOutput
+
+	gSO, err = gosn.Sync(gSI)
+	if err != nil {
+		return
+	}
+
+	// put new Items in db
+	for _, i := range gSO.Items {
+		item := Item{
+			UUID:        i.UUID,
+			Content:     i.Content,
+			ContentType: i.ContentType,
+			EncItemKey:  i.EncItemKey,
+			Deleted:     i.Deleted,
+			CreatedAt:   i.CreatedAt,
+			UpdatedAt:   i.UpdatedAt,
+		}
+		err = db.Save(&item)
+		if err != nil {
+			return
+		}
+	}
+
+	// update sync values in db for next time
+	sv := SyncToken{
+		SyncToken: gSO.SyncToken,
+	}
+	if err = db.Save(&sv); err != nil {
+		return
+	}
+
+	return
+}
+
+func Sync(si SyncInput) (so SyncOutput, err error) {
 	if !si.Session.Valid() {
 		err = fmt.Errorf("invalid session")
 		return
+	}
+
+	if si.DB != nil && si.DBPath != "" {
+		err = fmt.Errorf("passing a DB pointer and DB path does not make sense")
+		return
+	}
+
+	if si.DB == nil {
+		if si.DBPath == "" {
+			err = fmt.Errorf("DB pointer or DB path are required")
+			return
+		}
+		var db *storm.DB
+		db, err = firstSync(si)
+		return SyncOutput{
+			DB: db,
+		}, err
 	}
 
 	// get dirty Items
@@ -141,6 +199,8 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 	if err != nil {
 		return
 	}
+
+	// TODO: Remove dirty flag from DB after successful push
 
 	so.syncToken = gSO.SyncToken
 	so.cursorToken = gSO.Cursor

@@ -1,6 +1,7 @@
 package snpersist
 
 import (
+	"fmt"
 	"github.com/asdine/storm/v3"
 	"github.com/jonhadfield/gosn-v2"
 	"github.com/stretchr/testify/assert"
@@ -8,11 +9,14 @@ import (
 )
 
 func TestSyncWithoutDatabase(t *testing.T) {
-	_, err := Sync(SyncInput{})
-	assert.EqualError(t, err, "database not provided")
+	sOutput, err := gosn.SignIn(sInput)
+	assert.NoError(t, err, "sign-in failed", err)
+	_, err = Sync(SyncInput{Session: sOutput.Session})
+	assert.EqualError(t, err, "DB pointer or DB path are required")
 }
 
 func TestSyncWithInvalidSession(t *testing.T) {
+	defer removeDB(tempDBPath)
 	db, err := storm.Open(tempDBPath)
 	assert.NoError(t, err)
 	// missing session
@@ -32,23 +36,23 @@ func TestSyncWithNoItems(t *testing.T) {
 
 	defer cleanup(&sOutput.Session)
 
-	// open database
-	var db *storm.DB
-	db, err = storm.Open(tempDBPath)
-	if err != nil {
-		return
-	}
-	defer db.Close()
 	defer removeDB(tempDBPath)
 
 	var so SyncOutput
 	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
-		DB:      db,
+		DBPath:  tempDBPath,
 	})
 	assert.NoError(t, err)
-	assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
+
+	var syncTokens []SyncToken
+	err = so.DB.All(&syncTokens)
+	assert.NoError(t, err)
+	assert.Len(t, syncTokens, 1)
+	assert.NotEmpty(t, syncTokens[0]) // tells us what time to sync from next time
+	fmt.Println(syncTokens[0])
 	assert.Empty(t, so.SavedItems)
+	so.DB.Close()
 }
 
 func TestSyncWithNewNote(t *testing.T) {
@@ -88,8 +92,7 @@ func TestSyncWithNewNote(t *testing.T) {
 	var so SyncOutput
 	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
-		//DBPath:  tempDBPath,
-		DB: db,
+		DB:      db,
 	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
