@@ -268,3 +268,12 @@ func randInt(min int, max int) int {
 	rand.Seed(time.Now().UTC().UnixNano())
 	return min + rand.Intn(max-min)
 }
+
+
+const tempDBPath = "test.db"
+
+func removeDB(dbPath string) {
+	if err := os.Remove(dbPath); err != nil {
+		panic(err)
+	}
+}

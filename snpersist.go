@@ -1,9 +1,9 @@
 package snpersist
 
 import (
+	"fmt"
 	"github.com/asdine/storm/v3"
 	"github.com/jonhadfield/gosn-v2"
-	bolt "go.etcd.io/bbolt"
 	"strings"
 	"time"
 )
@@ -56,10 +56,7 @@ type SyncToken struct {
 
 type SyncInput struct {
 	Session gosn.Session
-	DBPath  string
-	//Items       gosn.EncryptedItems
-	//SyncToken   string
-	//CursorToken string
+	DB      *storm.DB
 }
 
 type SyncOutput struct {
@@ -84,18 +81,23 @@ func convertItemsToPersistItems(in gosn.EncryptedItems) (out []Item) {
 	return
 }
 
+//func firstSync(session gosn.Session)
+
 func Sync(si SyncInput) (so SyncOutput, err error) {
-	// open db
-	var db *storm.DB
-	db, err = storm.Open(si.DBPath, storm.BoltOptions(0600, &bolt.Options{Timeout: 2 * time.Second}))
-	if err != nil {
+	if si.DB == nil {
+		// first sync
+		err = fmt.Errorf("database not provided")
 		return
 	}
-	defer db.Close()
+
+	if !si.Session.Valid() {
+		err = fmt.Errorf("invalid session")
+		return
+	}
 
 	// get dirty Items
 	var dirty []Item
-	err = db.Find("Dirty", true, &dirty)
+	err = si.DB.Find("Dirty", true, &dirty)
 	if err != nil {
 		if !strings.Contains(err.Error(), "not found") {
 			return
@@ -104,7 +106,7 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 
 	// get sync token from previous operation
 	var syncTokens []SyncToken
-	err = db.All(&syncTokens)
+	err = si.DB.All(&syncTokens)
 	if err != nil {
 		if !strings.Contains(err.Error(), "not found") {
 			return
@@ -157,7 +159,7 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 			CreatedAt:   i.CreatedAt,
 			UpdatedAt:   i.UpdatedAt,
 		}
-		err = db.Save(&item)
+		err = si.DB.Save(&item)
 		if err != nil {
 			return
 		}
@@ -167,7 +169,7 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 	sv := SyncToken{
 		SyncToken: gSO.SyncToken,
 	}
-	if err = db.Save(&sv); err != nil {
+	if err = si.DB.Save(&sv); err != nil {
 		return
 	}
 

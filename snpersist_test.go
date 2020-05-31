@@ -4,9 +4,27 @@ import (
 	"github.com/asdine/storm/v3"
 	"github.com/jonhadfield/gosn-v2"
 	"github.com/stretchr/testify/assert"
-	"os"
 	"testing"
 )
+
+func TestSyncWithoutDatabase(t *testing.T) {
+	_, err := Sync(SyncInput{})
+	assert.EqualError(t, err, "database not provided")
+}
+
+func TestSyncWithInvalidSession(t *testing.T) {
+	db, err := storm.Open(tempDBPath)
+	assert.NoError(t, err)
+	// missing session
+	_, err = Sync(SyncInput{DB: db})
+	assert.EqualError(t, err, "invalid session")
+	_, err = Sync(SyncInput{DB: db, Session: gosn.Session{
+		Token: "a",
+		Mk:    "b",
+		Ak:    "c",
+	}})
+	assert.EqualError(t, err, "invalid session")
+}
 
 func TestSyncWithNoItems(t *testing.T) {
 	sOutput, err := gosn.SignIn(sInput)
@@ -14,10 +32,19 @@ func TestSyncWithNoItems(t *testing.T) {
 
 	defer cleanup(&sOutput.Session)
 
+	// open database
+	var db *storm.DB
+	db, err = storm.Open(tempDBPath)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	defer removeDB(tempDBPath)
+
 	var so SyncOutput
 	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
-		DBPath:  tempDBPath,
+		DB:      db,
 	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
@@ -57,12 +84,12 @@ func TestSyncWithNewNote(t *testing.T) {
 	allPersistedItems = append(allPersistedItems, itp...)
 
 	err = db.Save(allPersistedItems)
-	db.Close()
 
 	var so SyncOutput
 	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
-		DBPath:  tempDBPath,
+		//DBPath:  tempDBPath,
+		DB: db,
 	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
@@ -87,7 +114,7 @@ func TestSyncOneExisting(t *testing.T) {
 	var gso gosn.SyncOutput
 	gso, err = gosn.Sync(gosn.SyncInput{
 		Session: sOutput.Session,
-		Items: eItems,
+		Items:   eItems,
 	})
 	assert.NoError(t, err)
 	assert.Len(t, gso.SavedItems, 1)
@@ -106,19 +133,15 @@ func TestSyncOneExisting(t *testing.T) {
 	err = db.All(&allPersistedItems)
 	assert.NoError(t, err)
 	assert.Len(t, allPersistedItems, 0)
-	db.Close()
 
 	var so SyncOutput
 	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
-		DBPath:  tempDBPath,
+		DB:      db,
 	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
 	assert.Empty(t, so.cursorToken)  // empty because only default Items exist so no paging required
-
-	db, err = storm.Open(tempDBPath)
-	assert.NoError(t, err)
 	err = db.All(&allPersistedItems)
 	var foundNotes int
 	for _, pi := range allPersistedItems {
@@ -127,11 +150,4 @@ func TestSyncOneExisting(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, foundNotes)
-	//assert.Len(t, allPersistedItems, 1)
-}
-
-const tempDBPath = "test.db"
-
-func removeDB(dbPath string) {
-	os.Remove(dbPath)
 }
