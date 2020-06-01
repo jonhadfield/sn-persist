@@ -163,7 +163,7 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 		return
 	}
 	var syncToken string
-	if len(syncTokens) >1 {
+	if len(syncTokens) > 1 {
 		err = fmt.Errorf("expected maximum of one sync token but %d returned", len(syncTokens))
 	}
 	if len(syncTokens) == 1 {
@@ -186,8 +186,8 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 
 	// call gosn sync with dirty items to push
 	gSI := gosn.SyncInput{
-		Session: si.Session,
-		Items:   dirtyItemsToPush,
+		Session:   si.Session,
+		Items:     dirtyItemsToPush,
 		SyncToken: syncToken,
 	}
 
