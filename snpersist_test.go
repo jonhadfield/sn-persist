@@ -3,10 +3,10 @@ package snpersist
 import (
 	"fmt"
 	"github.com/asdine/storm/v3"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/jonhadfield/gosn-v2"
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 func TestSyncWithoutDatabase(t *testing.T) {
@@ -18,12 +18,9 @@ func TestSyncWithoutDatabase(t *testing.T) {
 
 func TestSyncWithInvalidSession(t *testing.T) {
 	defer removeDB(tempDBPath)
-	db, err := storm.Open(tempDBPath)
-	assert.NoError(t, err)
-	// missing session
-	_, err = Sync(SyncInput{DB: db})
+	_, err := Sync(SyncInput{DBPath: tempDBPath})
 	assert.EqualError(t, err, "invalid session")
-	_, err = Sync(SyncInput{DB: db, Session: gosn.Session{
+	_, err = Sync(SyncInput{DBPath: tempDBPath, Session: gosn.Session{
 		Token: "a",
 		Mk:    "b",
 		Ak:    "c",
@@ -51,11 +48,13 @@ func TestSyncWithNoItems(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, syncTokens, 1)
 	assert.NotEmpty(t, syncTokens[0]) // tells us what time to sync from next time
-	fmt.Println(syncTokens[0])
 	assert.Empty(t, so.SavedItems)
 	so.DB.Close()
 }
 
+// create a note in a storm DB, mark it dirty, and then sync to SN
+// the returned DB should have the note returned as not dirty
+// SN should now have that note
 func TestSyncWithNewNote(t *testing.T) {
 	sOutput, err := gosn.SignIn(sInput)
 	assert.NoError(t, err, "sign-in failed", err)
@@ -79,25 +78,60 @@ func TestSyncWithNewNote(t *testing.T) {
 	defer db.Close()
 	defer removeDB(tempDBPath)
 
-	// get all items
 	var allPersistedItems []Item
-	err = db.All(&allPersistedItems)
-
-	// items convert new items to 'persist' items
+	// items convert new items to 'persist' items and mark as dirty
 	itp := convertItemsToPersistItems(eItems)
-	// add items
-	allPersistedItems = append(allPersistedItems, itp...)
+	for _, i := range itp {
+		i.Dirty = true
+		i.DirtiedDate = time.Now()
+		assert.NoError(t, db.Save(&i))
+		allPersistedItems = append(allPersistedItems, i)
+	}
 
-	err = db.Save(allPersistedItems)
+	assert.Len(t, allPersistedItems, 1)
 
-	//var so SyncOutput
-	_, err = Sync(SyncInput{
+	var so SyncOutput
+	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
 		DB:      db,
 	})
 	assert.NoError(t, err)
-	//assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
-	//assert.Empty(t, so.cursorToken)  // empty because only default Items exist so no paging required
+
+	assert.NoError(t,so.DB.All(&allPersistedItems))
+	//assert.Len(t, allPersistedItems, 0)
+	var foundNonDirtyNote bool
+	for _, i := range allPersistedItems {
+		fmt.Printf("- %+v\n", i)
+		if i.UUID == newNote.UUID {
+			foundNonDirtyNote = true
+			assert.False(t, i.Dirty)
+			assert.Zero(t, i.DirtiedDate)
+		}
+	}
+	assert.True(t, foundNonDirtyNote)
+
+	// check the item exists in SN
+
+	// get sync token from previous operation
+	var syncTokens []SyncToken
+	assert.NoError(t, so.DB.All(&syncTokens))
+	assert.Len(t, syncTokens, 1)
+
+	var gSO gosn.SyncOutput
+	gSO, err = gosn.Sync(gosn.SyncInput{
+		Session:     sOutput.Session,
+		SyncToken:   syncTokens[0].SyncToken,
+	})
+	assert.NoError(t, err)
+
+	var foundNewItem bool
+	for _, i := range gSO.Items {
+		if i.UUID == newNote.UUID {
+			foundNewItem = true
+			assert.Equal(t, "Note", i.ContentType)
+		}
+	}
+	assert.True(t, foundNewItem)
 }
 
 func TestSyncOneExisting(t *testing.T) {
@@ -123,13 +157,11 @@ func TestSyncOneExisting(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, gso.SavedItems, 1)
 
-	// initialise DB
 	var so SyncOutput
 	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
 		DBPath:  tempDBPath,
 	})
-	spew.Dump(so)
 	assert.NoError(t, err)
 
 	defer so.DB.Close()

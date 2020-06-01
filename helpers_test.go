@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -274,6 +275,8 @@ const tempDBPath = "test.db"
 
 func removeDB(dbPath string) {
 	if err := os.Remove(dbPath); err != nil {
-		panic(err)
+		if ! strings.Contains(err.Error(), "no such file or directory") {
+			panic(err)
+		}
 	}
 }

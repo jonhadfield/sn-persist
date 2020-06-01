@@ -53,7 +53,7 @@ type SyncInput struct {
 type SyncOutput struct {
 	Items, SavedItems, Unsaved gosn.EncryptedItems // only used for testing purposes!?
 	//syncToken, cursorToken     string              // only used for testing purposes!?
-	DB                         *storm.DB           // pointer to DB (same if passed in SyncInput, new if called without existing)
+	DB *storm.DB // pointer to DB (same if passed in SyncInput, new if called without existing)
 }
 
 func convertItemsToPersistItems(in gosn.EncryptedItems) (out []Item) {
@@ -162,11 +162,18 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 
 		return
 	}
+	var syncToken string
+	if len(syncTokens) >1 {
+		err = fmt.Errorf("expected maximum of one sync token but %d returned", len(syncTokens))
+	}
+	if len(syncTokens) == 1 {
+		syncToken = syncTokens[0].SyncToken
+	}
 
 	// convert dirty to gosn.Items
-	var itemsToPush gosn.EncryptedItems
+	var dirtyItemsToPush gosn.EncryptedItems
 	for _, d := range dirty {
-		itemsToPush = append(itemsToPush, gosn.EncryptedItem{
+		dirtyItemsToPush = append(dirtyItemsToPush, gosn.EncryptedItem{
 			UUID:        d.UUID,
 			Content:     d.Content,
 			ContentType: d.ContentType,
@@ -177,10 +184,11 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 		})
 	}
 
-	// call gosn sync with new Items
+	// call gosn sync with dirty items to push
 	gSI := gosn.SyncInput{
 		Session: si.Session,
-		Items:   itemsToPush,
+		Items:   dirtyItemsToPush,
+		SyncToken: syncToken,
 	}
 
 	var gSO gosn.SyncOutput
@@ -191,15 +199,21 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 	}
 
 	// TODO: Remove dirty flag from DB after successful push
+	for _, d := range dirty {
+		err = si.DB.UpdateField(&Item{UUID: d.UUID}, "Dirty", false)
+		if err != nil {
+			return
+		}
+		err = si.DB.UpdateField(&Item{UUID: d.UUID}, "DirtiedDate", time.Time{})
+		if err != nil {
+			return
+		}
+	}
 
-	fmt.Println("gSO.SyncToken:",  gSO.SyncToken)
-	//so.syncToken = gSO.SyncToken
-	//fmt.Println("so.syncToken:",  so.syncToken)
-
-	//so.cursorToken = gSO.Cursor
 	so.Items = gSO.Items
 	so.SavedItems = gSO.SavedItems
 	so.Unsaved = gSO.Unsaved
+	so.DB = si.DB
 
 	// put new Items in db
 	for _, i := range gSO.Items {
@@ -219,7 +233,6 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 	}
 
 	// update sync values in db for next time
-	fmt.Println("HERE:", gSO.SyncToken)
 	sv := SyncToken{
 		SyncToken: gSO.SyncToken,
 	}
