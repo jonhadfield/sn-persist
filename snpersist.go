@@ -8,16 +8,6 @@ import (
 	"time"
 )
 
-//
-//func main() {
-//	db, err := storm.Open("my.db")
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	defer db.Close()
-//}
-
 type Item struct {
 	UUID        string `storm:"id,unique"`
 	Content     string
@@ -62,7 +52,7 @@ type SyncInput struct {
 
 type SyncOutput struct {
 	Items, SavedItems, Unsaved gosn.EncryptedItems // only used for testing purposes!?
-	syncToken, cursorToken     string              // only used for testing purposes!?
+	//syncToken, cursorToken     string              // only used for testing purposes!?
 	DB                         *storm.DB           // pointer to DB (same if passed in SyncInput, new if called without existing)
 }
 
@@ -83,7 +73,7 @@ func convertItemsToPersistItems(in gosn.EncryptedItems) (out []Item) {
 	return
 }
 
-func firstSync(si SyncInput) (db *storm.DB, err error) {
+func initialiseDB(si SyncInput) (db *storm.DB, err error) {
 	// create new DB in provided path
 	db, err = storm.Open(si.DBPath)
 	if err != nil {
@@ -147,7 +137,7 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 			return
 		}
 		var db *storm.DB
-		db, err = firstSync(si)
+		db, err = initialiseDB(si)
 		return SyncOutput{
 			DB: db,
 		}, err
@@ -202,8 +192,11 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 
 	// TODO: Remove dirty flag from DB after successful push
 
-	so.syncToken = gSO.SyncToken
-	so.cursorToken = gSO.Cursor
+	fmt.Println("gSO.SyncToken:",  gSO.SyncToken)
+	//so.syncToken = gSO.SyncToken
+	//fmt.Println("so.syncToken:",  so.syncToken)
+
+	//so.cursorToken = gSO.Cursor
 	so.Items = gSO.Items
 	so.SavedItems = gSO.SavedItems
 	so.Unsaved = gSO.Unsaved
@@ -226,6 +219,7 @@ func Sync(si SyncInput) (so SyncOutput, err error) {
 	}
 
 	// update sync values in db for next time
+	fmt.Println("HERE:", gSO.SyncToken)
 	sv := SyncToken{
 		SyncToken: gSO.SyncToken,
 	}

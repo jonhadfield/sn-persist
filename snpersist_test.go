@@ -3,6 +3,7 @@ package snpersist
 import (
 	"fmt"
 	"github.com/asdine/storm/v3"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/jonhadfield/gosn-v2"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -89,14 +90,14 @@ func TestSyncWithNewNote(t *testing.T) {
 
 	err = db.Save(allPersistedItems)
 
-	var so SyncOutput
-	so, err = Sync(SyncInput{
+	//var so SyncOutput
+	_, err = Sync(SyncInput{
 		Session: sOutput.Session,
 		DB:      db,
 	})
 	assert.NoError(t, err)
-	assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
-	assert.Empty(t, so.cursorToken)  // empty because only default Items exist so no paging required
+	//assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
+	//assert.Empty(t, so.cursorToken)  // empty because only default Items exist so no paging required
 }
 
 func TestSyncOneExisting(t *testing.T) {
@@ -122,30 +123,29 @@ func TestSyncOneExisting(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, gso.SavedItems, 1)
 
-	// open database
-	var db *storm.DB
-	db, err = storm.Open(tempDBPath)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+	// initialise DB
+	var so SyncOutput
+	so, err = Sync(SyncInput{
+		Session: sOutput.Session,
+		DBPath:  tempDBPath,
+	})
+	spew.Dump(so)
+	assert.NoError(t, err)
+
+	defer so.DB.Close()
 	defer removeDB(tempDBPath)
 
 	// get all items
 	var allPersistedItems []Item
-	err = db.All(&allPersistedItems)
+	err = so.DB.All(&allPersistedItems)
 	assert.NoError(t, err)
-	assert.Len(t, allPersistedItems, 0)
 
-	var so SyncOutput
-	so, err = Sync(SyncInput{
-		Session: sOutput.Session,
-		DB:      db,
-	})
+	var syncTokens []SyncToken
+	err = so.DB.All(&syncTokens)
 	assert.NoError(t, err)
-	assert.NotEmpty(t, so.syncToken) // tells us what time to sync from next time
-	assert.Empty(t, so.cursorToken)  // empty because only default Items exist so no paging required
-	err = db.All(&allPersistedItems)
+	assert.NotEmpty(t, syncTokens)
+
+	err = so.DB.All(&allPersistedItems)
 	var foundNotes int
 	for _, pi := range allPersistedItems {
 		if pi.ContentType == "Note" {
