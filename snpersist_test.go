@@ -1,7 +1,6 @@
 package snpersist
 
 import (
-	"fmt"
 	"github.com/asdine/storm/v3"
 	"github.com/jonhadfield/gosn-v2"
 	"github.com/stretchr/testify/assert"
@@ -97,11 +96,10 @@ func TestSyncWithNewNote(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	assert.NoError(t,so.DB.All(&allPersistedItems))
+	assert.NoError(t, so.DB.All(&allPersistedItems))
 	//assert.Len(t, allPersistedItems, 0)
 	var foundNonDirtyNote bool
 	for _, i := range allPersistedItems {
-		fmt.Printf("- %+v\n", i)
 		if i.UUID == newNote.UUID {
 			foundNonDirtyNote = true
 			assert.False(t, i.Dirty)
@@ -119,8 +117,8 @@ func TestSyncWithNewNote(t *testing.T) {
 
 	var gSO gosn.SyncOutput
 	gSO, err = gosn.Sync(gosn.SyncInput{
-		Session:     sOutput.Session,
-		SyncToken:   syncTokens[0].SyncToken,
+		Session:   sOutput.Session,
+		SyncToken: syncTokens[0].SyncToken,
 	})
 	assert.NoError(t, err)
 
