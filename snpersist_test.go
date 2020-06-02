@@ -91,7 +91,7 @@ func TestSyncWithNewNote(t *testing.T) {
 
 	var allPersistedItems []Item
 	// items convert new items to 'persist' items and mark as dirty
-	itp := convertItemsToPersistItems(eItems)
+	itp := ConvertItemsToPersistItems(eItems)
 	for _, i := range itp {
 		i.Dirty = true
 		i.DirtiedDate = time.Now()

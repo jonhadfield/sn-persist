@@ -56,9 +56,31 @@ type SyncOutput struct {
 	DB *storm.DB // pointer to DB (same if passed in SyncInput, new if called without existing)
 }
 
-func convertItemsToPersistItems(in gosn.EncryptedItems) (out []Item) {
-	for _, i := range in {
-		out = append(out, Item{
+type Items []Item
+
+func (pi Items) ToItems(session gosn.Session) (items gosn.Items, err error) {
+	var eItems gosn.EncryptedItems
+	for _, ei := range pi {
+		eItems = append(eItems, gosn.EncryptedItem{
+			UUID:        ei.UUID,
+			Content:     ei.Content,
+			ContentType: ei.ContentType,
+			EncItemKey:  ei.EncItemKey,
+			Deleted:     ei.Deleted,
+			CreatedAt:   ei.CreatedAt,
+			UpdatedAt:   ei.UpdatedAt,
+		})
+	}
+	if eItems != nil {
+		items, err = eItems.DecryptAndParse(session.Mk, session.Ak, false)
+	}
+
+	return
+}
+
+func ConvertItemsToPersistItems(items gosn.EncryptedItems) (pitems []Item) {
+	for _, i := range items {
+		pitems = append(pitems, Item{
 			UUID:        i.UUID,
 			Content:     i.Content,
 			ContentType: i.ContentType,
@@ -66,10 +88,9 @@ func convertItemsToPersistItems(in gosn.EncryptedItems) (out []Item) {
 			Deleted:     i.Deleted,
 			CreatedAt:   i.CreatedAt,
 			UpdatedAt:   i.UpdatedAt,
-			Dirty:       true,
-			DirtiedDate: time.Now(),
 		})
 	}
+
 	return
 }
 
