@@ -27,6 +27,18 @@ func TestSyncWithInvalidSession(t *testing.T) {
 	assert.EqualError(t, err, "invalid session")
 }
 
+func TestSyncWithPathAndDB(t *testing.T) {
+	sOutput, err := gosn.SignIn(sInput)
+	assert.NoError(t, err, "sign-in failed", err)
+	var db *storm.DB
+	db, err = storm.Open(tempDBPath)
+	assert.NoError(t, err)
+	defer db.Close()
+	defer removeDB(tempDBPath)
+	_, err = Sync(SyncInput{DBPath: tempDBPath, DB: db, Session: sOutput.Session})
+	assert.EqualError(t, err, "passing a DB pointer and DB path does not make sense")
+}
+
 func TestSyncWithNoItems(t *testing.T) {
 	sOutput, err := gosn.SignIn(sInput)
 	assert.NoError(t, err, "sign-in failed", err)
@@ -96,8 +108,11 @@ func TestSyncWithNewNote(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
+	assert.Len(t, so.SavedItems, 1)
+	assert.Equal(t, newNote.UUID, so.SavedItems[0].UUID)
+	assert.Equal(t, "Note", so.SavedItems[0].ContentType)
+
 	assert.NoError(t, so.DB.All(&allPersistedItems))
-	//assert.Len(t, allPersistedItems, 0)
 	var foundNonDirtyNote bool
 	for _, i := range allPersistedItems {
 		if i.UUID == newNote.UUID {
@@ -132,6 +147,8 @@ func TestSyncWithNewNote(t *testing.T) {
 	assert.True(t, foundNewItem)
 }
 
+// create a note in SN directly
+// call persist Sync and check DB contains the note
 func TestSyncOneExisting(t *testing.T) {
 	sOutput, err := gosn.SignIn(sInput)
 	assert.NoError(t, err, "sign-in failed", err)
@@ -145,8 +162,8 @@ func TestSyncOneExisting(t *testing.T) {
 	var eItems gosn.EncryptedItems
 	eItems, err = dItems.Encrypt(sOutput.Session.Mk, sOutput.Session.Ak, true)
 	assert.NoError(t, err)
-	// push to SN
 
+	// push to SN
 	var gso gosn.SyncOutput
 	gso, err = gosn.Sync(gosn.SyncInput{
 		Session: sOutput.Session,
@@ -155,6 +172,7 @@ func TestSyncOneExisting(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, gso.SavedItems, 1)
 
+	// call persist sync
 	var so SyncOutput
 	so, err = Sync(SyncInput{
 		Session: sOutput.Session,
@@ -179,6 +197,7 @@ func TestSyncOneExisting(t *testing.T) {
 	var foundNotes int
 	for _, pi := range allPersistedItems {
 		if pi.ContentType == "Note" {
+			assert.Equal(t, newNote.UUID, pi.UUID)
 			foundNotes++
 		}
 	}
